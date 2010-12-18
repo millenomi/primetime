@@ -24,8 +24,9 @@ static NSInteger PtCompareEpisodeAndSeason(id v, id v2, void* context) {
 @interface PtScheduler ()
 
 - (void) updateSchedule;
-
 - (void) setVideos:(NSSet*) videos;
+
+@property(nonatomic, copy) NSDictionary* decisions;
 
 @end
 
@@ -52,6 +53,7 @@ static NSInteger PtCompareEpisodeAndSeason(id v, id v2, void* context) {
 - (void) dealloc
 {
 	self.videosSource = nil;
+	self.decisions = nil;
 	[allowedRepresentationClasses release];
 	[videos release];
 	[schedule release];
@@ -159,6 +161,7 @@ static NSInteger PtCompareEpisodeAndSeason(id v, id v2, void* context) {
 
 - (void) beginHoldingScheduleUpdates;
 {
+	self.editingSchedule = YES;
 	holdCount++;
 }
 
@@ -172,42 +175,104 @@ static NSInteger PtCompareEpisodeAndSeason(id v, id v2, void* context) {
 		[self updateSchedule];
 }
 
+static inline NSMutableArray* PtExistingOrNewMutableArrayForKey(NSMutableDictionary* dict, id key) {
+	NSMutableArray* a = [dict objectForKey:key];
+	if (!a) {
+		a = [NSMutableArray array];
+		[dict setObject:a forKey:key];
+	}
+	
+	return a;
+}
+
 - (void) updateSchedule;
-{
+{	
 	if (holdCount > 0)
 		return;
+	
+	NSMutableDictionary* decs = [NSMutableDictionary dictionaryWithCapacity:[self.videos count]];
+#define PtArrayForDecision(dec) PtExistingOrNewMutableArrayForKey(decs, (dec))
+	
 	
 	NSMutableArray* s = [NSMutableArray array];
 	NSSet* allowed = self.allowedRepresentationClasses;
 	if (allowed && [allowed count] == 0)
 		allowed = nil;
 	
-	BOOL shouldHaveMaximumDuration = (self.approximateDesiredDuration != 0.0);
-	double totalDuration = 0.0;
-	for (id <PtVideo> video in [appropriateVideos allValues]) {
+	NSMutableArray* applicableItems = [[[appropriateVideos allValues] mutableCopy] autorelease];
+	
+	// Apply priority
+	if (self.priority == kPtSchedulerPriorityToOldestUnseen || self.priority == kPtSchedulerPriorityToNewestUnseen) {	
+		[applicableItems sortUsingDescriptors:
+		 [NSArray arrayWithObject:
+		  [[[NSSortDescriptor alloc] initWithKey:@"dateAdded" ascending:(self.priority == kPtSchedulerPriorityToOldestUnseen)] autorelease]
+		  ]
+		 ];
+	} else if (self.priority == kPtSchedulerPriorityRandom) {
 		
-		if (allowed && ![[video representationClasses] intersectsSet:allowed])
-			continue;
+		arc4random_stir();
 		
-		if (shouldHaveMaximumDuration && [s count] > 0 && totalDuration + [video duration] > self.approximateDesiredDuration * 1.5)
-			break;
-		
-		[s addObject:video];
-		totalDuration += [video duration];
-		
-		if (shouldHaveMaximumDuration && totalDuration > self.approximateDesiredDuration)
-			break;
+		// Modern Knuth shuffle impl -- http://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
+		for (NSInteger i = [applicableItems count] - 1; i > 1; i--) {
+			// not sure this is distributed evenly, but oh well. we don't need true white-noise level of randomness here.
+			NSInteger j = arc4random() % i + 1;
+			[applicableItems exchangeObjectAtIndex:j withObjectAtIndex:i];
+		}
 		
 	}
 	
-	[s sortUsingDescriptors:
-	 [NSArray arrayWithObject:
-	  [[[NSSortDescriptor alloc] initWithKey:@"dateAdded" ascending:YES] autorelease]
-	  ]
-	 ];
+	BOOL shouldHaveMaximumDuration = (self.approximateDesiredDuration != 0.0);
+	BOOL cutDueToTime = NO;
+	double totalDuration = 0.0;
+	
+	NSInteger i = 0;
+	
+	for (id <PtVideo> video in applicableItems) {
+		
+		if (allowed && ![[video representationClasses] intersectsSet:allowed]) {
+			[PtArrayForDecision(kPtSchedulerDecisionExcludeHasNoAllowedRepresentations) addObject:video];
+			continue;
+		}
+		
+		if (shouldHaveMaximumDuration && [video duration] + totalDuration > self.approximateDesiredDuration) {
+			
+			if ([s count] == 0)
+				[PtArrayForDecision(kPtSchedulerDecisionIncludedToAvoidEmptySchedule) addObject:video];
+			else if (totalDuration < self.approximateDesiredDuration * 0.8 && totalDuration + [video duration] < self.approximateDesiredDuration * 1.5)
+				[PtArrayForDecision(kPtSchedulerDecisionIncludedToAvoidShortSchedule) addObject:video];
+			else {
+				[PtArrayForDecision(kPtSchedulerDecisionExcludeScheduleWouldRunTooLong) addObject:video];
+				continue;
+			}
+		}
+		
+		[s addObject:video];
+		totalDuration += [video duration];
+		[PtArrayForDecision(kPtSchedulerDecisionInclude) addObject:video];
+		
+		i++;
+		
+		if (shouldHaveMaximumDuration && totalDuration > self.approximateDesiredDuration) {
+			cutDueToTime = YES;
+			break;
+		}
+	}
+	
+	if (cutDueToTime) {
+		NSArray* excluded = [applicableItems subarrayWithRange:NSMakeRange(i, [applicableItems count] - i)];
+		[PtArrayForDecision(kPtSchedulerDecisionExcludeIgnoredDueToScheduleTimeLimit) addObjectsFromArray:excluded];
+	}
+	
+	if (!self.editingSchedule)
+		self.editingSchedule = YES;
 	
 	[[self mutableArrayValueForKey:@"schedule"] setArray:s];
+	
+	self.decisions = decs;
+	self.editingSchedule = NO;
 }
+
+@synthesize decisions, editingSchedule;
 
 @synthesize approximateDesiredDuration;
 - (void) setApproximateDesiredDuration:(double) d;
@@ -225,6 +290,13 @@ static NSInteger PtCompareEpisodeAndSeason(id v, id v2, void* context) {
 		
 		[self updateSchedule];
 	}
+}
+
+@synthesize priority;
+- (void) setPriority:(PtSchedulerPriority) p;
+{
+	priority = p;
+	[self updateSchedule];
 }
 
 @end

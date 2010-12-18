@@ -12,6 +12,22 @@
 
 extern NSString* PtVideoDescription(id <PtVideo> video);
 
+#define kPtSchedulerDecisionInclude @"kPtSchedulerDecisionInclude"
+#define kPtSchedulerDecisionExcludeScheduleWouldRunTooLong @"kPtSchedulerDecisionExcludeScheduleRanTooLong"
+#define kPtSchedulerDecisionExcludeIgnoredDueToScheduleTimeLimit @"kPtSchedulerDecisionExcludeCutDueToScheduleTimeLimit"
+#define kPtSchedulerDecisionExcludeHasPreviousUnwatchedEpisodes @"kPtSchedulerDecisionExcludeHasPreviousUnwatchedEpisodes"
+#define kPtSchedulerDecisionExcludeHasNoAllowedRepresentations @"kPtSchedulerDecisionExcludeHasNoAllowedRepresentations"
+
+#define kPtSchedulerDecisionIncludedToAvoidShortSchedule @"kPtSchedulerDecisionIncludedToAvoidShortSchedule"
+#define kPtSchedulerDecisionIncludedToAvoidEmptySchedule @"kPtSchedulerDecisionIncludedToAvoidEmptySchedule"
+
+enum {
+	kPtSchedulerPriorityToOldestUnseen = 0,
+	kPtSchedulerPriorityToNewestUnseen,
+	kPtSchedulerPriorityRandom,
+};
+typedef NSInteger PtSchedulerPriority;
+
 @interface PtScheduler : NSObject {
 	NSMutableSet* videos;
 	NSMutableArray* schedule;
@@ -19,6 +35,8 @@ extern NSString* PtVideoDescription(id <PtVideo> video);
 	NSSet* allowedRepresentationClasses;
 	
 	NSUInteger holdCount;
+	
+	PtSchedulerPriority priority;
 }
 
 + schedule;
@@ -34,12 +52,18 @@ extern NSString* PtVideoDescription(id <PtVideo> video);
 
 // can be KVO'd.
 @property(nonatomic, readonly) NSArray* schedule;
+// can be KVO'd.
+@property(nonatomic, readonly, copy) NSDictionary* decisions;
 
 @property double approximateDesiredDuration;
 @property(nonatomic, copy) NSSet* allowedRepresentationClasses;
 
 - (void) beginHoldingScheduleUpdates;
 - (void) endHoldingScheduleUpdates;
+
+@property(nonatomic) PtSchedulerPriority priority;
+
+@property(nonatomic, getter=isEditingSchedule) BOOL editingSchedule;
 
 @end
 
@@ -66,6 +90,7 @@ extern NSString* PtVideoDescription(id <PtVideo> video);
 	Classes we want to have if available:
 	- NSURL
 	- [[SBApplication applicationWithBundleIdentifier:@"com.apple.itunes"] classForScriptingClass:@"file track"]
+	- [[SBApplication applicationWithBundleIdentifier:@"com.apple.itunes"] classForScriptingClass:@"track"]
  */
 - (id) representationOfClass:(Class) c;
 - (NSSet*) representationClasses;

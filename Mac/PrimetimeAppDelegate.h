@@ -16,11 +16,16 @@
 	
 	PtScheduler* scheduler;
 	// PtVideosSource* videosSource;
+	
+	NSInteger durationInQuartersOfHour;
 }
 
 @property(assign) IBOutlet NSWindow *window;
 
 @property(retain) PtScheduler* scheduler;
 // @property(retain) PtVideosSource* videosSource;
+
+@property NSInteger durationInQuartersOfHour;
+@property(readonly) NSString* userVisibleDuration;
 
 @end
