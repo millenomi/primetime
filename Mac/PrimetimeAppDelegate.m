@@ -8,6 +8,7 @@
 
 #import "PrimetimeAppDelegate.h"
 #import "iTunes.h"
+#import "JSON.h"
 
 #import "PtiTunesTrackVideo.h"
 
@@ -135,6 +136,10 @@
 	if (self.scheduler.editingSchedule)
 		return;
 	
+	NSLog(@"%@", self.scheduler.schedule);
+	
+	// ------- update iTunes playlist -------
+	
 	iTApplication* itunes = [SBApplication applicationWithBundleIdentifier:@"com.apple.itunes"];
 	
 	SBElementArray* librarySources = [[itunes sources] where:@"kind == %@", PtEnum(iTESrcLibrary)];
@@ -168,7 +173,54 @@
 	for (id <PtVideo> v in self.scheduler.schedule)
 		[[v representationOfClass:c] duplicateTo:primetimePlaylist];
 	
-	NSLog(@"%@", self.scheduler.schedule);
+	
+	// ------- update App Support folder -------
+	
+	NSFileManager* fm = [NSFileManager defaultManager];
+	
+	// TODO check count == 0
+	NSString* appSupportPath = [[[fm URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] objectAtIndex:0] path];
+	
+	NSString* primetimePath = [appSupportPath stringByAppendingPathComponent:@"Primetime"];
+	NSString* videosPath = [primetimePath stringByAppendingPathComponent:@"Videos"];
+	
+	[fm removeItemAtPath:videosPath error:NULL];
+	[fm createDirectoryAtPath:videosPath withIntermediateDirectories:YES attributes:nil error:NULL];
+	
+	NSInteger i = 1;
+	
+	NSMutableData* m3u = [NSMutableData data];
+	NSMutableArray* json = [NSMutableArray array];
+	
+	for (id <PtVideo> v in self.scheduler.schedule) {
+		NSURL* url = [v representationOfClass:[NSURL class]];
+		if (!url)
+			continue;
+		
+		NSString* path = [url path];
+		NSString* basename = [NSString stringWithFormat:@"%d - %@", i, [path lastPathComponent]];
+		
+		[fm createSymbolicLinkAtPath:[videosPath stringByAppendingPathComponent:basename] withDestinationPath:path error:NULL];
+		
+		NSString* relativePath = [@"Videos" stringByAppendingPathComponent:basename];
+		[json addObject:relativePath];
+		
+		const char* fsRep = [relativePath fileSystemRepresentation];
+		[m3u appendBytes:fsRep length:strlen(fsRep)];
+		
+		const char newline = '\n';
+		[m3u appendBytes:&newline length:1];
+		
+		i++;
+	}
+	
+	NSString* m3uPath = [primetimePath stringByAppendingPathComponent:@"Primetime.m3u"];
+	
+	[m3u writeToFile:m3uPath atomically:YES];
+	[fm setAttributes:[NSDictionary dictionaryWithObject:[NSNumber numberWithBool:YES] forKey:NSFileExtensionHidden] ofItemAtPath:m3uPath error:NULL];
+	
+//	NSString* jsonPath = [primetimePath stringByAppendingPathComponent:@"Primetime.json"];
+//	[[[json JSONRepresentation] dataUsingEncoding:NSUTF8StringEncoding] writeToFile:jsonPath atomically:YES];
 }
 
 @end
