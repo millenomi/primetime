@@ -63,7 +63,9 @@ typedef NSInteger PtSchedulerPriority;
 
 @property(nonatomic) PtSchedulerPriority priority;
 
-@property(nonatomic, getter=isEditingSchedule) BOOL editingSchedule;
+// can be KVO'd.
+// if YES, the scheduler is currently editing the .schedule property (which may produce multiple KVO notifications); if NO, the scheduler property has been changed and will not change in the foreseeable future. If you want to act upon a completed schedule only, observe this property and perform your operation only when this property is NO.
+@property(nonatomic, readonly, getter=isEditingSchedule) BOOL editingSchedule;
 
 @end
 

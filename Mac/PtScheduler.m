@@ -27,6 +27,7 @@ static NSInteger PtCompareEpisodeAndSeason(id v, id v2, void* context) {
 - (void) setVideos:(NSSet*) videos;
 
 @property(nonatomic, copy) NSDictionary* decisions;
+@property(nonatomic, getter=isEditingSchedule) BOOL editingSchedule;
 
 @end
 
